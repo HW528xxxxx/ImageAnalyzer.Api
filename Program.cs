@@ -5,9 +5,11 @@ using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models;
 using Microsoft.AspNetCore.Mvc;
 using Azure.AI.OpenAI;
+using System.Diagnostics;
+using System.Text.RegularExpressions;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
-
 // ----------------- CORS -----------------
 builder.Services.AddCors(opt =>
 {
@@ -54,6 +56,8 @@ app.MapPost("/api/analyze", async (HttpContext context,
     [FromServices] ChatClient client,
     IConfiguration config) =>
 {
+    var stopwatch = Stopwatch.StartNew();
+
     var req = context.Request;
     if (!req.HasFormContentType)
         return Results.BadRequest(new { message = "請使用 multipart/form-data 上傳" });
@@ -107,26 +111,52 @@ app.MapPost("/api/analyze", async (HttpContext context,
     var tags = analysis.Tags?.Select(t => t.Name) ?? Enumerable.Empty<string>();
     var caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text;
 
+    // 把圖片轉成 Base64 data URI
+    string base64Image = Convert.ToBase64String(bytes);
+    string imageDataUri = $"data:image/jpeg;base64,{base64Image}";
+
     string prompt = $@"
-我有一張圖片，Azure Computer Vision 的分析結果如下：
-- Caption: {caption}
-- Tags: {string.Join(", ", tags)}
-- OCR: {string.Join(" | ", ocrLines)}
+        我有一張圖片，Azure Computer Vision 的分析結果如下：
+        - Caption: {caption}
+        - Tags: {string.Join(", ", tags)}
+        - OCR: {string.Join(" | ", ocrLines)}
 
-請幫我給出更精準的描述：
-1. 如果能判斷品牌或型號（例如 Tesla Cybertruck），請直接指出。
-2. 如果是電動車，請加上 '電動車' 標籤。
-3. 回傳 JSON 格式：{{ ""description"": ..., ""extraTags"": [...] }}
-";
+        請幫我給出更精準的描述，用中文描述：
+        1. 如果能判斷品牌或型號（例如 Tesla Cybertruck），請直接指出。
+        2. 如果是電動車，請加上 '電動車' 標籤。
+        3. 回傳 JSON 格式：{{ ""description"": ..., ""extraTags"": [...] }}
+        ";
 
+    // 用 multimodal message（文字 + 圖片）
     var chatMessages = new List<ChatMessage>()
     {
         new SystemChatMessage("你是一個影像辨識專家"),
-        new UserChatMessage(prompt)
+        new UserChatMessage(new List<ChatMessageContentPart>()
+        {
+            ChatMessageContentPart.CreateTextPart(prompt),
+            ChatMessageContentPart.CreateImagePart(new Uri(imageDataUri))
+        })
     };
 
     var completion = await client.CompleteChatAsync(chatMessages);
-    var gptResult = completion.Value.Content[0].Text;
+
+    // 清理 GPT 回傳，去掉 ```json、``` 和多餘換行
+    // 原始 gptResult 包含中文 + JSON
+    string gptResult = completion.Value.Content[0].Text
+        .Replace("```json", "")
+        .Replace("```", "")
+        .Trim();
+
+    // 用 Regex 找出 { 開頭到 } 結尾的 JSON
+    var match = Regex.Match(gptResult, "{.*}", RegexOptions.Singleline);
+    GptResult? gptJson = null;
+    if (match.Success)
+    {
+        gptJson = JsonSerializer.Deserialize<GptResult>(match.Value);
+    }
+
+    stopwatch.Stop();
+    double elapsedSeconds = stopwatch.ElapsedMilliseconds / 1000.0;
 
     return Results.Ok(new
     {
@@ -135,7 +165,8 @@ app.MapPost("/api/analyze", async (HttpContext context,
         caption = caption,
         captionConfidence = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Confidence,
         ocr = ocrLines,
-        gptDescription = gptResult
+        gptDescription = gptJson,
+        requestDurationMs = elapsedSeconds
     });
 })
 .AllowAnonymous(); // <- 不需要 Anti-Forgery

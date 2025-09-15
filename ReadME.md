@@ -76,23 +76,30 @@ using (var ms2 = new MemoryStream(bytes))
 成功後可從 readResult.AnalyzeResult.ReadResults 取出每頁（page）及每行（line）的文字。
 
 
-回傳 JSON 結果：
-return Results.Ok(new
-{
-    tags = analysis.Tags?.Select(t => new { t.Name, t.Confidence }),
-    objects = analysis.Objects?.Select(o => new { Name = o.ObjectProperty, o.Confidence }),
-    caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text,
-    captionConfidence = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Confidence,
-    ocr = ocrLines
-});
-
-
 6. 呼叫 Azure OpenAI 2.x (生成更精準描述)
-var chatMessages = new List<ChatMessage>()
-{
-    new SystemChatMessage("你是一個影像辨識專家"),
-    new UserChatMessage(prompt)
-};
+
+    // 把圖片轉成 Base64 data URI
+    <!-- GPT 的 **Chat API（2.x SDK）**多數是基於訊息（message）傳送文字的。
+    如果要傳圖片，API 要求 多模態訊息 (Multimodal Message) 必須用 URL 或 Data URI 的形式。
+    直接傳 byte[] 是不被支援的，因為 GPT 並沒有原生接收 raw bytes 的欄位
+
+    data:image/jpeg;base64,... 是 Data URI，本質上就是把檔案內容用 Base64 編碼後直接嵌入字串裡。
+    GPT 收到後可以「理解」這是一張圖片，進行分析。
+    好處：不需要把圖片上傳到雲端或生成 URL，整個訊息就包含文字和圖片-->
+    string base64Image = Convert.ToBase64String(bytes);
+    string imageDataUri = $"data:image/jpeg;base64,{base64Image}";
+
+
+    // GPT 2.x SDK 的「多模態訊息 (文字 + 圖片)」用法
+    var chatMessages = new List<ChatMessage>()
+    {
+        new SystemChatMessage("你是一個影像辨識專家"),
+        new UserChatMessage(new List<ChatMessageContentPart>()
+        {
+            ChatMessageContentPart.CreateTextPart(prompt),
+            ChatMessageContentPart.CreateImagePart(new Uri(imageDataUri))
+        })
+    };
 
 var completion = await client.CompleteChatAsync(chatMessages);
 var gptResult = completion.Value.Content[0].Text;
@@ -109,6 +116,19 @@ prompt 中包含 Caption、Tags、OCR 結果
 
 7. .AllowAnonymous()
 確保 Minimal API 不觸發 Anti-Forgery。
+
+
+
+8. 回傳 JSON 結果：
+return Results.Ok(new
+{
+    tags = analysis.Tags?.Select(t => new { t.Name, t.Confidence }),
+    objects = analysis.Objects?.Select(o => new { Name = o.ObjectProperty, o.Confidence }),
+    caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text,
+    captionConfidence = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Confidence,
+    ocr = ocrLines
+});
+
 
 C:\Users\User\Desktop\FaceAPI\ImageAnalyzer.Api\tsla.jpg
 Postman 測試結果
@@ -212,7 +232,16 @@ Postman 測試結果
     "caption": "a car driving on a road",
     "captionConfidence": 0.5526080131530762,
     "ocr": [],
-    "gptDescription": "{ \"description\": \"一輛 Tesla 電動車在沙漠道路上行駛\", \"extraTags\": [\"電動車\", \"Tesla\"] }"
+    "gptDescription": {
+        "description": "一輛特斯拉的Cybertruck電動車在沙漠中的公路上行駛。",
+        "extraTags": [
+            "特斯拉",
+            "Cybertruck",
+            "電動車",
+            "沙漠"
+        ]
+    },
+    "requestDurationMs": 7.059
 }
 
 說明
@@ -225,3 +254,5 @@ caption → 系統給的最佳文字描述。
 captionConfidence → 描述的可信度。
 
 ocr → OCR 識別出的所有文字，保持原本順序。
+
+
