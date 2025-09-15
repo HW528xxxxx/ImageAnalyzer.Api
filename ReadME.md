@@ -77,7 +77,39 @@ using (var ms2 = new MemoryStream(bytes))
 
 
 6. 呼叫 Azure OpenAI 2.x (生成更精準描述)
+    ### ImageSharp 縮圖 + Base64 Data URI
 
+    使用 [SixLabors.ImageSharp](https://github.com/SixLabors/ImageSharp) 對上傳的圖片進行縮圖，並轉為 Base64 字串，方便在 HTTP 請求中傳送或給 GPT multimodal 使用。
+    // 使用 ImageSharp 載入圖片到記憶體 (image 變數代表圖片的整個資料，包含像素資訊和寬高)
+    using var image = SixLabors.ImageSharp.Image.Load(bytes);
+    Image.Load(bytes) 會從 byte array 中載入圖片，不需要寫入檔案。
+
+    // 設定縮圖的最大邊長（寬或高）為 256 像素。
+    int maxSize = 256;
+    
+    // 根據原圖寬高比計算縮圖後的寬和高。
+    int width = image.Width > image.Height ? maxSize : image.Width * maxSize / image.Height;
+    int height = image.Height >= image.Width ? maxSize : image.Height * maxSize / image.Width;
+    
+    // 使用 Mutate 來修改原圖（ImageSharp 的不可變設計）。
+    image.Mutate(x => x.Resize(width, height));
+    
+    Resize(width, height) 根據前面計算的尺寸縮放圖片。
+
+    // 建立記憶體流，用來存放縮圖後的 JPEG 資料 -> 不需存檔到硬碟，提高效能。
+    using var msThumb = new MemoryStream();
+    
+
+    var encoder = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder
+    {
+        Quality = 70 // 降低 JPEG 品質，減少 payload
+    };
+    使用 JPEG 編碼器將圖片轉為 JPEG 格式。
+    適合網路傳輸或作為 GPT multimodal 輸入。
+
+    // 將縮圖結果寫入 MemoryStream。
+    image.Save(msThumb, encoder); // 輸出 JPEG
+    
     // 把圖片轉成 Base64 data URI
     <!-- GPT 的 **Chat API（2.x SDK）**多數是基於訊息（message）傳送文字的。
     如果要傳圖片，API 要求 多模態訊息 (Multimodal Message) 必須用 URL 或 Data URI 的形式。
@@ -241,7 +273,7 @@ Postman 測試結果
             "沙漠"
         ]
     },
-    "requestDurationMs": 7.059
+    "requestDurationMs": 6.18
 }
 
 說明

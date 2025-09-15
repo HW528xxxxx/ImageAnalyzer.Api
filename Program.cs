@@ -6,8 +6,9 @@ using Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models;
 using Microsoft.AspNetCore.Mvc;
 using Azure.AI.OpenAI;
 using System.Diagnostics;
-using System.Text.RegularExpressions;
+using SixLabors.ImageSharp.Processing;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 var builder = WebApplication.CreateBuilder(args);
 // ----------------- CORS -----------------
@@ -53,11 +54,8 @@ app.UseCors("frontend");
 // ----------------- Minimal API Endpoint (Computer Vision + Azure OpenAI 2.x) -----------------
 app.MapPost("/api/analyze", async (HttpContext context,
     [FromServices] ComputerVisionClient cv,
-    [FromServices] ChatClient client,
-    IConfiguration config) =>
+    [FromServices] ChatClient client) =>
 {
-    var stopwatch = Stopwatch.StartNew();
-
     var req = context.Request;
     if (!req.HasFormContentType)
         return Results.BadRequest(new { message = "請使用 multipart/form-data 上傳" });
@@ -76,28 +74,32 @@ app.MapPost("/api/analyze", async (HttpContext context,
         bytes = ms.ToArray();
     }
 
-    // 1) Image Analysis
+    var stopwatch = Stopwatch.StartNew();
+
+    // Parallelize: Image Analysis + OCR 同時發起
     var features = new List<VisualFeatureTypes?>()
         { VisualFeatureTypes.Description, VisualFeatureTypes.Tags, VisualFeatureTypes.Objects };
 
-    ImageAnalysis analysis;
-    using (var ms1 = new MemoryStream(bytes))
-        analysis = await cv.AnalyzeImageInStreamAsync(ms1, features);
+    using var ms1 = new MemoryStream(bytes);
+    var analyzeTask = cv.AnalyzeImageInStreamAsync(ms1, features);
 
-    // 2) OCR
+    using var ms2 = new MemoryStream(bytes);
+    var readTask = cv.ReadInStreamAsync(ms2);
+
+    await Task.WhenAll(analyzeTask, readTask);
+
+    var analysis = analyzeTask.Result;
+
+    // OCR 輪詢
+    var readOp = readTask.Result;
+    var opId = readOp.OperationLocation.Split('/').Last();
     ReadOperationResult readResult;
-    using (var ms2 = new MemoryStream(bytes))
+    do
     {
-        var readOp = await cv.ReadInStreamAsync(ms2);
-        var opId = readOp.OperationLocation.Split('/').Last();
-
-        do
-        {
-            readResult = await cv.GetReadResultAsync(Guid.Parse(opId));
-            await Task.Delay(500);
-        } while (readResult.Status == OperationStatusCodes.Running ||
-                 readResult.Status == OperationStatusCodes.NotStarted);
-    }
+        readResult = await cv.GetReadResultAsync(Guid.Parse(opId));
+        await Task.Delay(500);
+    } while (readResult.Status == OperationStatusCodes.Running ||
+             readResult.Status == OperationStatusCodes.NotStarted);
 
     var ocrLines = new List<string>();
     if (readResult.Status == OperationStatusCodes.Succeeded)
@@ -111,27 +113,40 @@ app.MapPost("/api/analyze", async (HttpContext context,
     var tags = analysis.Tags?.Select(t => t.Name) ?? Enumerable.Empty<string>();
     var caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text;
 
-    // 把圖片轉成 Base64 data URI
-    string base64Image = Convert.ToBase64String(bytes);
+    // ---------------------- ImageSharp 縮圖 + Base64 Data URI ----------------------
+    using var image = SixLabors.ImageSharp.Image.Load(bytes); // 載入圖片
+    int maxSize = 256; // 縮小尺寸
+    int width = image.Width > image.Height ? maxSize : image.Width * maxSize / image.Height;
+    int height = image.Height >= image.Width ? maxSize : image.Height * maxSize / image.Width;
+
+    image.Mutate(x => x.Resize(width, height)); // 縮圖
+
+    using var msThumb = new MemoryStream();
+    var encoder = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder
+    {
+        Quality = 70 // 降低 JPEG 質量，減少 payload (傳送的資料量)
+    };
+    image.Save(msThumb, encoder); // 輸出 JPEG
+    string base64Image = Convert.ToBase64String(msThumb.ToArray());
     string imageDataUri = $"data:image/jpeg;base64,{base64Image}";
 
     string prompt = $@"
-        我有一張圖片，Azure Computer Vision 的分析結果如下：
-        - Caption: {caption}
-        - Tags: {string.Join(", ", tags)}
-        - OCR: {string.Join(" | ", ocrLines)}
+我有一張圖片，Azure Computer Vision 的分析結果如下：
+- Caption: {caption}
+- Tags: {string.Join(", ", tags)}
+- OCR: {string.Join(" | ", ocrLines)}
 
         請幫我給出更精準的描述，用中文描述：
         1. 如果能判斷品牌或型號（例如 Tesla Cybertruck），請直接指出。
         2. 如果是電動車，請加上 '電動車' 標籤。
-        3. 回傳 JSON 格式：{{ ""description"": ..., ""extraTags"": [...] }}
-        ";
+3. 回傳 JSON 格式：{{ ""description"": ..., ""extraTags"": [...] }}
+";
 
     // 用 multimodal message（文字 + 圖片）
     var chatMessages = new List<ChatMessage>()
     {
         new SystemChatMessage("你是一個影像辨識專家"),
-        new UserChatMessage(new List<ChatMessageContentPart>()
+        new UserChatMessage(new List<ChatMessageContentPart>
         {
             ChatMessageContentPart.CreateTextPart(prompt),
             ChatMessageContentPart.CreateImagePart(new Uri(imageDataUri))
@@ -141,7 +156,6 @@ app.MapPost("/api/analyze", async (HttpContext context,
     var completion = await client.CompleteChatAsync(chatMessages);
 
     // 清理 GPT 回傳，去掉 ```json、``` 和多餘換行
-    // 原始 gptResult 包含中文 + JSON
     string gptResult = completion.Value.Content[0].Text
         .Replace("```json", "")
         .Replace("```", "")
@@ -156,7 +170,7 @@ app.MapPost("/api/analyze", async (HttpContext context,
     }
 
     stopwatch.Stop();
-    double elapsedSeconds = stopwatch.ElapsedMilliseconds / 1000.0;
+        double elapsedSeconds = stopwatch.ElapsedMilliseconds / 1000.0;
 
     return Results.Ok(new
     {
