@@ -1,7 +1,10 @@
+using Azure;
+using OpenAI.Chat; // 2.x SDK
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models;
-using Microsoft.AspNetCore.Mvc; // <--- for [FromForm]
+using Microsoft.AspNetCore.Mvc;
+using Azure.AI.OpenAI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,24 +27,34 @@ var key      = builder.Configuration["AzureVision:Key"]!;
 builder.Services.AddSingleton(new ComputerVisionClient(
     new ApiKeyServiceClientCredentials(key)) { Endpoint = endpoint });
 
+// ----------------- Azure OpenAI (2.x) -----------------
+var aoaiEndpoint = builder.Configuration["AzureOpenAI:Endpoint"]!;
+var aoaiKey      = builder.Configuration["AzureOpenAI:Key"]!;
+var deployName   = builder.Configuration["AzureOpenAI:Deployment"]!;
+
+var chatClient = new AzureOpenAIClient(
+    new Uri(aoaiEndpoint),
+    new System.ClientModel.ApiKeyCredential(aoaiKey))
+    .GetChatClient(deployName);
+
+builder.Services.AddSingleton(chatClient);
+
 // ----------------- Swagger -----------------
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// ----------------- Build App -----------------
 var app = builder.Build();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors("frontend");
 
-// ----------------- Minimal API Endpoint -----------------
-// API：POST /api/analyze (multipart/form-data，欄位名 file) app.MapPost("/api/analyze", async (IFormFile file, ComputerVisionClient cv) =>
-
-// 改成手動讀取表單，避免 Anti-Forgery 問題
-app.MapPost("/api/analyze", async (HttpContext context, [FromServices] ComputerVisionClient cv) =>
+// ----------------- Minimal API Endpoint (Computer Vision + Azure OpenAI 2.x) -----------------
+app.MapPost("/api/analyze", async (HttpContext context,
+    [FromServices] ComputerVisionClient cv,
+    [FromServices] ChatClient client,
+    IConfiguration config) =>
 {
     var req = context.Request;
-
     if (!req.HasFormContentType)
         return Results.BadRequest(new { message = "請使用 multipart/form-data 上傳" });
 
@@ -90,17 +103,50 @@ app.MapPost("/api/analyze", async (HttpContext context, [FromServices] ComputerV
                 ocrLines.Add(line.Text);
     }
 
-    // 3) 回傳結果
+    // ----------------- 呼叫 Azure OpenAI 2.x -----------------
+    var tags = analysis.Tags?.Select(t => t.Name) ?? Enumerable.Empty<string>();
+    var caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text;
+
+    string prompt = $@"
+我有一張圖片，Azure Computer Vision 的分析結果如下：
+- Caption: {caption}
+- Tags: {string.Join(", ", tags)}
+- OCR: {string.Join(" | ", ocrLines)}
+
+請幫我給出更精準的描述：
+1. 如果能判斷品牌或型號（例如 Tesla Cybertruck），請直接指出。
+2. 如果是電動車，請加上 '電動車' 標籤。
+3. 回傳 JSON 格式：{{ ""description"": ..., ""extraTags"": [...] }}
+";
+
+    var chatMessages = new List<ChatMessage>()
+    {
+        new SystemChatMessage("你是一個影像辨識專家"),
+        new UserChatMessage(prompt)
+    };
+
+    var completion = await client.CompleteChatAsync(chatMessages);
+    var gptResult = completion.Value.Content[0].Text;
+
     return Results.Ok(new
     {
         tags = analysis.Tags?.Select(t => new { t.Name, t.Confidence }) ?? Enumerable.Empty<object>(),
         objects = analysis.Objects?.Select(o => new { Name = o.ObjectProperty, o.Confidence }) ?? Enumerable.Empty<object>(),
-        caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text,
+        caption = caption,
         captionConfidence = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Confidence,
-        ocr = ocrLines
+        ocr = ocrLines,
+        gptDescription = gptResult
     });
 })
 .AllowAnonymous(); // <- 不需要 Anti-Forgery
 
-// ----------------- Run -----------------
+// ----------------- Minimal API Endpoint (Azure OpenAI 2.x Test) -----------------
+app.MapGet("/test-openai", async ([FromServices] ChatClient client) =>
+{
+    var chatMessages = new List<ChatMessage>() { new SystemChatMessage("你是一個測試助手") };
+    var complete = await client.CompleteChatAsync(chatMessages);
+    var resp = complete.Value.Content[0].Text;
+    return Results.Ok(new { message = resp });
+});
+
 app.Run();

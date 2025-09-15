@@ -1,3 +1,10 @@
+功能概述
+影像分析 (Image Analysis)：使用 Azure Computer Vision 提取 Caption、Tags、Objects。
+文字辨識 (OCR)：提取圖片中的文字。
+智慧描述生成 (Azure OpenAI 2.x)：結合影像分析結果，生成更精準的描述與額外標籤。
+CORS 支援：允許前端（Vite / Vue CLI）呼叫 API。
+上傳限制：支援最大 20MB 的圖片檔案。
+
 程式碼核心流程 
 
 1. CORS 設定 : 允許前端（Vite / Vue CLI）呼叫 API。
@@ -80,7 +87,27 @@ return Results.Ok(new
 });
 
 
-6. .AllowAnonymous()
+6. 呼叫 Azure OpenAI 2.x (生成更精準描述)
+var chatMessages = new List<ChatMessage>()
+{
+    new SystemChatMessage("你是一個影像辨識專家"),
+    new UserChatMessage(prompt)
+};
+
+var completion = await client.CompleteChatAsync(chatMessages);
+var gptResult = completion.Value.Content[0].Text;
+
+
+prompt 中包含 Caption、Tags、OCR 結果
+
+回傳 JSON 格式：
+
+{
+    "description": "...",
+    "extraTags": ["..."]
+}
+
+7. .AllowAnonymous()
 確保 Minimal API 不觸發 Anti-Forgery。
 
 C:\Users\User\Desktop\FaceAPI\ImageAnalyzer.Api\tsla.jpg
@@ -184,7 +211,8 @@ Postman 測試結果
     ],
     "caption": "a car driving on a road",
     "captionConfidence": 0.5526080131530762,
-    "ocr": []
+    "ocr": [],
+    "gptDescription": "{ \"description\": \"一輛 Tesla 電動車在沙漠道路上行駛\", \"extraTags\": [\"電動車\", \"Tesla\"] }"
 }
 
 說明
