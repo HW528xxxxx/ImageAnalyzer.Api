@@ -56,25 +56,35 @@ app.MapPost("/api/analyze", async (HttpContext context,
     [FromServices] ComputerVisionClient cv,
     [FromServices] ChatClient client) =>
 {
-    var req = context.Request;
-    if (!req.HasFormContentType)
-        return Results.BadRequest(new { message = "請使用 multipart/form-data 上傳" });
-
-    var form = await req.ReadFormAsync();
-    var file = form.Files["file"]; // Postman 裡的檔案欄位名稱
-
-    if (file == null || file.Length == 0)
-        return Results.BadRequest(new { message = "請上傳圖片檔" });
-
-    // 將檔案裝進記憶體，避免後面要重複讀兩次（Analyze + OCR）
-    byte[] bytes;
-    using (var ms = new MemoryStream())
+    try
     {
-        await file.CopyToAsync(ms);
-        bytes = ms.ToArray();
-    }
+        var req = context.Request;
+        if (!req.HasFormContentType)
+            return Results.BadRequest(new ErrorResponse
+            {
+                Code = "InvalidRequest",
+                Message = "請使用 multipart/form-data 上傳"
+            });
 
-    var stopwatch = Stopwatch.StartNew();
+        var form = await req.ReadFormAsync();
+        var file = form.Files["file"]; // Postman 裡的檔案欄位名稱
+
+        if (file == null || file.Length == 0)
+            return Results.BadRequest(new ErrorResponse
+            {
+                Code = "FileMissing",
+                Message = "請上傳圖片檔"
+            });
+
+        // 將檔案裝進記憶體，避免後面要重複讀兩次（Analyze + OCR）
+        byte[] bytes;
+        using (var ms = new MemoryStream())
+        {
+            await file.CopyToAsync(ms);
+            bytes = ms.ToArray();
+        }
+
+        var stopwatch = Stopwatch.StartNew();
 
     // Parallelize: Image Analysis + OCR 同時發起
     var features = new List<VisualFeatureTypes?>()
@@ -172,16 +182,42 @@ app.MapPost("/api/analyze", async (HttpContext context,
     stopwatch.Stop();
         double elapsedSeconds = stopwatch.ElapsedMilliseconds / 1000.0;
 
-    return Results.Ok(new
+        return Results.Ok(new
+        {
+            tags = analysis.Tags?.Select(t => new { t.Name, t.Confidence }) ?? Enumerable.Empty<object>(),
+            objects = analysis.Objects?.Select(o => new { Name = o.ObjectProperty, o.Confidence }) ?? Enumerable.Empty<object>(),
+            caption = caption,
+            captionConfidence = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Confidence,
+            ocr = ocrLines,
+            gptDescription = gptJson,
+            requestDurationMs = elapsedSeconds
+        });
+    }
+    catch (ComputerVisionOcrErrorException ex)
     {
-        tags = analysis.Tags?.Select(t => new { t.Name, t.Confidence }) ?? Enumerable.Empty<object>(),
-        objects = analysis.Objects?.Select(o => new { Name = o.ObjectProperty, o.Confidence }) ?? Enumerable.Empty<object>(),
-        caption = caption,
-        captionConfidence = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Confidence,
-        ocr = ocrLines,
-        gptDescription = gptJson,
-        requestDurationMs = elapsedSeconds
-    });
+        return Results.BadRequest(new ErrorResponse
+        {
+            Code = MessageCodeEnum.OcrFailed.ToString(),
+            Message = $"{EnumHelper.GetEnumDescription(MessageCodeEnum.OcrFailed)}: {ex.Message}",
+
+        });
+    }
+    catch (SixLabors.ImageSharp.UnknownImageFormatException ex)
+    {
+        return Results.BadRequest(new ErrorResponse
+        {
+            Code = MessageCodeEnum.ImageFormatError.ToString(),
+            Message = $"{EnumHelper.GetEnumDescription(MessageCodeEnum.ImageFormatError)}: {ex.Message}"
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(new ErrorResponse
+        {
+            Code = MessageCodeEnum.非預期系統錯誤.ToString(),
+            Message = $"{EnumHelper.GetEnumDescription(MessageCodeEnum.ServerError)}: {ex.Message}"
+        }.ToString(), statusCode: 500);
+    }
 })
 .AllowAnonymous(); // <- 不需要 Anti-Forgery
 
