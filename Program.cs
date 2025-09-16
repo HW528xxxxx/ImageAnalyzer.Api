@@ -120,7 +120,10 @@ app.MapPost("/api/analyze", async (HttpContext context,
     }
 
     // ----------------- 呼叫 Azure OpenAI 2.x -----------------
-    var tags = analysis.Tags?.Select(t => t.Name) ?? Enumerable.Empty<string>();
+    var tags = analysis.Tags?
+    .Where(t => t.Confidence > 0.88)  // 只取信心值大於 88%
+    .Select(t => t.Name)
+    ?? Enumerable.Empty<string>();
     var caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text;
 
     // ---------------------- ImageSharp 縮圖 + Base64 Data URI ----------------------
@@ -184,7 +187,9 @@ app.MapPost("/api/analyze", async (HttpContext context,
 
         return Results.Ok(new
         {
-            tags = analysis.Tags?.Select(t => new { t.Name, t.Confidence }) ?? Enumerable.Empty<object>(),
+            tags = analysis.Tags?
+                .Where(t => t.Confidence > 0.88)
+                .Select(t => new { t.Name, t.Confidence }) ?? Enumerable.Empty<object>(),
             objects = analysis.Objects?.Select(o => new { Name = o.ObjectProperty, o.Confidence }) ?? Enumerable.Empty<object>(),
             caption = caption,
             captionConfidence = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Confidence,
