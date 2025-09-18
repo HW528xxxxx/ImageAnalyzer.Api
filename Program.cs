@@ -24,16 +24,16 @@ builder.Services.AddCors(opt =>
 builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = 20_000_000);
 
 // ----------------- Azure Computer Vision -----------------
-var endpoint = builder.Configuration["AzureVision:Endpoint"]!;
-var key      = builder.Configuration["AzureVision:Key"]!;
+var endpoint = builder.Configuration["AzureVision:Endpoint"]?? throw new Exception("AzureVision:Endpoint 未設定");
+var key      = builder.Configuration["AzureVision:Key"] ?? throw new Exception("AzureVision:Key 未設定");
 
 builder.Services.AddSingleton(new ComputerVisionClient(
     new ApiKeyServiceClientCredentials(key)) { Endpoint = endpoint });
 
 // ----------------- Azure OpenAI (2.x) -----------------
-var aoaiEndpoint = builder.Configuration["AzureOpenAI:Endpoint"]!;
-var aoaiKey      = builder.Configuration["AzureOpenAI:Key"]!;
-var deployName   = builder.Configuration["AzureOpenAI:Deployment"]!;
+string aoaiEndpoint = builder.Configuration["AzureOpenAI:Endpoint"] ?? throw new Exception("AzureOpenAI:Endpoint 未設定");
+string aoaiKey = builder.Configuration["AzureOpenAI:Key"] ?? throw new Exception("AzureOpenAI:Key 未設定");
+var deployName = builder.Configuration["AzureOpenAI:Deployment"] ?? throw new Exception("AzureOpenAI:Key 未設定");
 
 var chatClient = new AzureOpenAIClient(
     new Uri(aoaiEndpoint),
