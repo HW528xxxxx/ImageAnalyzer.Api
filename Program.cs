@@ -15,7 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(opt =>
 {
     opt.AddPolicy("frontend", p => p
-        .WithOrigins("http://localhost:5173", "http://localhost:8080")
+        .WithOrigins("http://localhost:5173", "http://localhost:8080", "https://orange-plant-03636b100.1.azurestaticapps.net")
         .AllowAnyHeader()
         .AllowAnyMethod());
 });
