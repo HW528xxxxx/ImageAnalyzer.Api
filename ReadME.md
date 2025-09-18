@@ -1,3 +1,10 @@
+功能概述
+影像分析 (Image Analysis)：使用 Azure Computer Vision 提取 Caption、Tags、Objects。
+文字辨識 (OCR)：提取圖片中的文字。
+智慧描述生成 (Azure OpenAI 2.x)：結合影像分析結果，生成更精準的描述與額外標籤。
+CORS 支援：允許前端（Vite / Vue CLI）呼叫 API。
+上傳限制：支援最大 20MB 的圖片檔案。
+
 程式碼核心流程 
 
 1. CORS 設定 : 允許前端（Vite / Vue CLI）呼叫 API。
@@ -69,7 +76,82 @@ using (var ms2 = new MemoryStream(bytes))
 成功後可從 readResult.AnalyzeResult.ReadResults 取出每頁（page）及每行（line）的文字。
 
 
-回傳 JSON 結果：
+6. 呼叫 Azure OpenAI 2.x (生成更精準描述)
+    ### ImageSharp 縮圖 + Base64 Data URI
+
+    使用 [SixLabors.ImageSharp](https://github.com/SixLabors/ImageSharp) 對上傳的圖片進行縮圖，並轉為 Base64 字串，方便在 HTTP 請求中傳送或給 GPT multimodal 使用。
+    // 使用 ImageSharp 載入圖片到記憶體 (image 變數代表圖片的整個資料，包含像素資訊和寬高)
+    using var image = SixLabors.ImageSharp.Image.Load(bytes);
+    Image.Load(bytes) 會從 byte array 中載入圖片，不需要寫入檔案。
+
+    // 設定縮圖的最大邊長（寬或高）為 256 像素。
+    int maxSize = 256;
+    
+    // 根據原圖寬高比計算縮圖後的寬和高。
+    int width = image.Width > image.Height ? maxSize : image.Width * maxSize / image.Height;
+    int height = image.Height >= image.Width ? maxSize : image.Height * maxSize / image.Width;
+    
+    // 使用 Mutate 來修改原圖（ImageSharp 的不可變設計）。
+    image.Mutate(x => x.Resize(width, height));
+    
+    Resize(width, height) 根據前面計算的尺寸縮放圖片。
+
+    // 建立記憶體流，用來存放縮圖後的 JPEG 資料 -> 不需存檔到硬碟，提高效能。
+    using var msThumb = new MemoryStream();
+    
+
+    var encoder = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder
+    {
+        Quality = 70 // 降低 JPEG 品質，減少 payload
+    };
+    使用 JPEG 編碼器將圖片轉為 JPEG 格式。
+    適合網路傳輸或作為 GPT multimodal 輸入。
+
+    // 將縮圖結果寫入 MemoryStream。
+    image.Save(msThumb, encoder); // 輸出 JPEG
+    
+    // 把圖片轉成 Base64 data URI
+    <!-- GPT 的 **Chat API（2.x SDK）**多數是基於訊息（message）傳送文字的。
+    如果要傳圖片，API 要求 多模態訊息 (Multimodal Message) 必須用 URL 或 Data URI 的形式。
+    直接傳 byte[] 是不被支援的，因為 GPT 並沒有原生接收 raw bytes 的欄位
+
+    data:image/jpeg;base64,... 是 Data URI，本質上就是把檔案內容用 Base64 編碼後直接嵌入字串裡。
+    GPT 收到後可以「理解」這是一張圖片，進行分析。
+    好處：不需要把圖片上傳到雲端或生成 URL，整個訊息就包含文字和圖片-->
+    string base64Image = Convert.ToBase64String(bytes);
+    string imageDataUri = $"data:image/jpeg;base64,{base64Image}";
+
+
+    // GPT 2.x SDK 的「多模態訊息 (文字 + 圖片)」用法
+    var chatMessages = new List<ChatMessage>()
+    {
+        new SystemChatMessage("你是一個影像辨識專家"),
+        new UserChatMessage(new List<ChatMessageContentPart>()
+        {
+            ChatMessageContentPart.CreateTextPart(prompt),
+            ChatMessageContentPart.CreateImagePart(new Uri(imageDataUri))
+        })
+    };
+
+var completion = await client.CompleteChatAsync(chatMessages);
+var gptResult = completion.Value.Content[0].Text;
+
+
+prompt 中包含 Caption、Tags、OCR 結果
+
+回傳 JSON 格式：
+
+{
+    "description": "...",
+    "extraTags": ["..."]
+}
+
+7. .AllowAnonymous()
+確保 Minimal API 不觸發 Anti-Forgery。
+
+
+
+8. 回傳 JSON 結果：
 return Results.Ok(new
 {
     tags = analysis.Tags?.Select(t => new { t.Name, t.Confidence }),
@@ -79,9 +161,6 @@ return Results.Ok(new
     ocr = ocrLines
 });
 
-
-6. .AllowAnonymous()
-確保 Minimal API 不觸發 Anti-Forgery。
 
 C:\Users\User\Desktop\FaceAPI\ImageAnalyzer.Api\tsla.jpg
 Postman 測試結果
@@ -184,7 +263,17 @@ Postman 測試結果
     ],
     "caption": "a car driving on a road",
     "captionConfidence": 0.5526080131530762,
-    "ocr": []
+    "ocr": [],
+    "gptDescription": {
+        "description": "一輛特斯拉的Cybertruck電動車在沙漠中的公路上行駛。",
+        "extraTags": [
+            "特斯拉",
+            "Cybertruck",
+            "電動車",
+            "沙漠"
+        ]
+    },
+    "requestDurationMs": 6.18
 }
 
 說明
@@ -197,3 +286,5 @@ caption → 系統給的最佳文字描述。
 captionConfidence → 描述的可信度。
 
 ocr → OCR 識別出的所有文字，保持原本順序。
+
+
