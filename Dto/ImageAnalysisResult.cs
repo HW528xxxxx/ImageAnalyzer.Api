@@ -1,10 +1,20 @@
-public class ImageAnalysisResult
+namespace ComputerVision.Dto
 {
-    public IEnumerable<(string Name, double Confidence)> Tags { get; set; } = Enumerable.Empty<(string, double)>();
-    public IEnumerable<(string Name, double Confidence)> Objects { get; set; } = Enumerable.Empty<(string, double)>();
-    public string? Caption { get; set; }
-    public double? CaptionConfidence { get; set; }
-    public IEnumerable<string> OcrLines { get; set; } = Enumerable.Empty<string>();
-    public GptResult? GptDescription { get; set; }
-    public double RequestDurationMs { get; set; }
+    public class ObjectInfo
+    {
+        public string Name { get; set; } = "";
+        public double Confidence { get; set; }
+    }
+
+    public class ImageAnalysisResult
+    {
+        public IEnumerable<ObjectInfo> Tags { get; set; } = Enumerable.Empty<ObjectInfo>();
+        public IEnumerable<ObjectInfo> Objects { get; set; } = Enumerable.Empty<ObjectInfo>();
+        public string? Caption { get; set; }
+        public double? CaptionConfidence { get; set; }
+        public IEnumerable<string> OcrLines { get; set; } = Enumerable.Empty<string>();
+        public GptResult? GptDescription { get; set; }
+        public double RequestDurationMs { get; set; }
+    }
+
 }
