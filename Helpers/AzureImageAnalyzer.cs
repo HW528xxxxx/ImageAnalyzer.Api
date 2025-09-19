@@ -5,6 +5,7 @@ using System.Diagnostics;
 using SixLabors.ImageSharp.Processing;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using ComputerVision.Dto;
 
 
 public class AzureImageAnalyzer : IImageAnalyzer
@@ -38,14 +39,20 @@ public class AzureImageAnalyzer : IImageAnalyzer
 
         return new ImageAnalysisResult
         {
-            Tags = analysis.Tags?.Where(t => t.Confidence > 0.88).Select(t => (t.Name, t.Confidence)) ?? Enumerable.Empty<(string, double)>(),
-            Objects = analysis.Objects?.Select(o => (o.ObjectProperty, o.Confidence)) ?? Enumerable.Empty<(string, double)>(),
-            Caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text,
-            CaptionConfidence = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Confidence,
-            OcrLines = ocrLines,
-            GptDescription = gptResult,
-            RequestDurationMs = stopwatch.ElapsedMilliseconds / 1000.0
-        };
+            Tags = analysis.Tags?
+            .Where(t => t.Confidence > 0.88)
+            .Select(t => new ObjectInfo { Name = t.Name, Confidence = t.Confidence }) 
+            ?? Enumerable.Empty<ObjectInfo>(),
+
+            Objects = analysis.Objects?
+            .Select(o => new ObjectInfo { Name = o.ObjectProperty, Confidence = o.Confidence }) 
+            ?? Enumerable.Empty<ObjectInfo>(),
+                Caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text,
+                CaptionConfidence = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Confidence,
+                OcrLines = ocrLines,
+                GptDescription = gptResult,
+                RequestDurationMs = stopwatch.ElapsedMilliseconds / 1000.0
+            };
     }
 
     private async Task<List<string>> ReadOcrAsync(byte[] bytes)
