@@ -37,6 +37,26 @@ public class AzureImageAnalyzer : IImageAnalyzer
 
         stopwatch.Stop();
 
+        // 多模型融合計算 CaptionConfidence
+        var cvCaption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault();
+        double cvCaptionConfidence = cvCaption?.Confidence ?? 0;
+
+        double tagsConfidence = 0;
+        if (analysis.Tags != null && analysis.Tags.Any())
+            tagsConfidence = analysis.Tags
+                .OrderByDescending(t => t.Confidence)
+                .Take(5)
+                .Average(t => t.Confidence);
+
+        double objectsConfidence = 0;
+        if (analysis.Objects != null && analysis.Objects.Any())
+            objectsConfidence = analysis.Objects
+                .OrderByDescending(o => o.Confidence)
+                .Take(5)
+                .Average(o => o.Confidence);
+
+        double combinedCaptionConfidence = 0.5 * cvCaptionConfidence + 0.25 * tagsConfidence + 0.25 * objectsConfidence;
+
         return new ImageAnalysisResult
         {
             Tags = analysis.Tags?
@@ -47,12 +67,13 @@ public class AzureImageAnalyzer : IImageAnalyzer
             Objects = analysis.Objects?
             .Select(o => new ObjectInfo { Name = o.ObjectProperty, Confidence = o.Confidence }) 
             ?? Enumerable.Empty<ObjectInfo>(),
-                Caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text,
-                CaptionConfidence = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Confidence,
-                OcrLines = ocrLines,
-                GptDescription = gptResult,
-                RequestDurationMs = stopwatch.ElapsedMilliseconds / 1000.0
-            };
+
+            Caption = cvCaption?.Text,
+            CaptionConfidence = combinedCaptionConfidence, // ← 使用加權平均後的信心值
+            OcrLines = ocrLines,
+            GptDescription = gptResult,
+            RequestDurationMs = stopwatch.ElapsedMilliseconds / 1000.0
+        };
     }
 
     private async Task<List<string>> ReadOcrAsync(byte[] bytes)
