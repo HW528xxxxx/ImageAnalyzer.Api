@@ -15,16 +15,36 @@ public enum MessageCodeEnum
     OcrFailed = 10001,
 
     /// <summary>
+    /// 找不到檔案
+    /// </summary>
+    [Description("找不到檔案，請重新上傳")]
+    ImageNULL = 10002,
+
+    /// <summary>
     /// 圖片格式錯誤
     /// </summary>
     [Description("檔案不是有效的圖片格式，請改用 JPG / PNG")]
-    ImageFormatError = 10002,
+    ImageFormatError = 10003,
 
     /// <summary>
-    /// 伺服器內部錯誤
+    /// 今日IP呼叫次數已達上限
     /// </summary>
-    [Description("伺服器發生未預期錯誤，請稍後再試")]
-    ServerError = 10003,
+    [Description("今日呼叫次數已達上限")]
+    CheckLimit = 10004,
+
+    
+    /// <summary>
+    /// Azure OpenAI 分析失敗
+    /// </summary>
+    [Description("Azure OpenAI 分析失敗，請稍後再試")]
+    OpenAiFailed = 10005,
+
+    
+    /// <summary>
+    /// Azure Computer Vision 分析失敗
+    /// </summary>
+    [Description("Azure Computer Vision 分析失敗，請稍後再試")]
+    ComputerVisionFailed = 10006,
 
     /// <summary>
     /// 未知錯誤
