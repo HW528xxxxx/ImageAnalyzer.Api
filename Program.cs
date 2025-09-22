@@ -3,6 +3,9 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.AspNetCore.Mvc;
 using Azure.AI.OpenAI;
+using ComputerVision.Interface;
+using ComputerVision.Services;
+using ComputerVision.Exceptions;
 
 var builder = WebApplication.CreateBuilder(args);
 // ----------------- CORS -----------------
@@ -37,6 +40,10 @@ var chatClient = new AzureOpenAIClient(
 builder.Services.AddSingleton(chatClient);
 builder.Services.AddSingleton<IImageAnalyzer, AzureImageAnalyzer>();
 
+// ----------------- Memory Cache -----------------
+builder.Services.AddMemoryCache(); // 記憶體快取
+builder.Services.AddSingleton<IIpRateLimitService, IpRateLimitService>();
+
 // ----------------- Swagger -----------------
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -46,26 +53,68 @@ app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors("frontend");
 
-app.MapPost("/api/analyze", async (HttpRequest req, [FromServices] IImageAnalyzer analyzer) =>
+app.MapPost("/api/analyze", async (HttpRequest req,
+                                   [FromServices] IImageAnalyzer analyzer,
+                                   [FromServices] IIpRateLimitService rateLimitService) =>
 {
-    if (!req.HasFormContentType)
-        return Results.BadRequest(new { message = "請使用 multipart/form-data 上傳" });
-
-    var form = await req.ReadFormAsync();
-    var file = form.Files["file"];
-    if (file == null || file.Length == 0)
-        return Results.BadRequest(new { message = "請上傳圖片檔" });
-
-    byte[] bytes;
-    using (var ms = new MemoryStream())
+    try
     {
-        await file.CopyToAsync(ms);
-        bytes = ms.ToArray();
-    }
+        var ip = req.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 
-    var result = await analyzer.AnalyzeAsync(bytes);
-    return Results.Ok(result);
+        if (!rateLimitService.CheckLimit(ip, 5, out var remaining))
+            return Results.Json(
+                new { code = (int)MessageCodeEnum.CheckLimit, message = EnumHelper.GetEnumDescription(MessageCodeEnum.CheckLimit) },
+                statusCode: 429
+            );
+
+        if (!req.HasFormContentType)
+            return Results.Json(
+                new { code = (int)MessageCodeEnum.ImageFormatError, message = "請使用 multipart/form-data 上傳" },
+                statusCode: 400
+            );
+
+        var form = await req.ReadFormAsync();
+        var file = form.Files["file"];
+        if (file == null || file.Length == 0)
+            return Results.Json(
+                new { code = (int)MessageCodeEnum.ImageNULL, message = EnumHelper.GetEnumDescription(MessageCodeEnum.ImageNULL) },
+                statusCode: 400
+            );
+
+        var allowedTypes = new[] { "image/jpeg", "image/png" };
+        if (!allowedTypes.Contains(file.ContentType.ToLower()))
+            return Results.Json(
+                new { code = (int)MessageCodeEnum.ImageFormatError, message = EnumHelper.GetEnumDescription(MessageCodeEnum.ImageFormatError) },
+                statusCode: 400
+            );
+
+        byte[] bytes;
+        using (var ms = new MemoryStream())
+        {
+            await file.CopyToAsync(ms);
+            bytes = ms.ToArray();
+        }
+
+        var result = await analyzer.AnalyzeAsync(bytes);
+        return Results.Ok(result);
+    }
+    catch (AnalyzerException aex)
+    {
+        return Results.Json(
+            new { code = (int)aex.Code, message = aex.Message },
+            statusCode: 400
+        );
+    }
+    catch (Exception ex)
+    {
+        // 其他未知錯誤
+        return Results.Json(
+            new { code = (int)MessageCodeEnum.非預期系統錯誤, message = EnumHelper.GetEnumDescription(MessageCodeEnum.非預期系統錯誤) + ": " + ex.Message },
+            statusCode: 500
+        );
+    }
 });
+
 
 // ----------------- Minimal API Endpoint (Azure OpenAI 2.x Test) -----------------
 app.MapGet("/test-openai", async ([FromServices] ChatClient client) =>

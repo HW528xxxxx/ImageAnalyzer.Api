@@ -6,7 +6,7 @@ using SixLabors.ImageSharp.Processing;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ComputerVision.Dto;
-
+using ComputerVision.Exceptions;
 
 public class AzureImageAnalyzer : IImageAnalyzer
 {
@@ -22,18 +22,54 @@ public class AzureImageAnalyzer : IImageAnalyzer
     public async Task<ImageAnalysisResult> AnalyzeAsync(byte[] bytes)
     {
         var stopwatch = Stopwatch.StartNew();
+        ImageAnalysis analysis;
 
-        // Computer Vision 分析
-        var features = new List<VisualFeatureTypes?>
-            { VisualFeatureTypes.Description, VisualFeatureTypes.Tags, VisualFeatureTypes.Objects };
-        using var ms1 = new MemoryStream(bytes);
-        var analysis = await _cv.AnalyzeImageInStreamAsync(ms1, features);
+        try
+        {
+            // Computer Vision 分析
+            var features = new List<VisualFeatureTypes?>
+                { VisualFeatureTypes.Description, VisualFeatureTypes.Tags, VisualFeatureTypes.Objects };
+            using var ms1 = new MemoryStream(bytes);
+            analysis = await _cv.AnalyzeImageInStreamAsync(ms1, features);
+        }
+        catch (Exception ex)
+        {
+            throw new AnalyzerException(
+                MessageCodeEnum.ComputerVisionFailed,
+                EnumHelper.GetEnumDescription(MessageCodeEnum.ComputerVisionFailed),
+                ex
+            );
+        }
 
-        // OCR
-        var ocrLines = await ReadOcrAsync(bytes);
+        List<string> ocrLines;
+        try
+        {
+            // OCR
+            ocrLines = await ReadOcrAsync(bytes);
+        }
+        catch (Exception ex)
+        {
+            throw new AnalyzerException(
+                MessageCodeEnum.OcrFailed,
+                EnumHelper.GetEnumDescription(MessageCodeEnum.OcrFailed),
+                ex
+            );
+        }
 
-        // GPT multimodal
-        var gptResult = await AnalyzeWithOpenAIAsync(analysis, ocrLines, bytes);
+        GptResult? gptResult;
+        try
+        {
+            // GPT multimodal
+            gptResult = await AnalyzeWithOpenAIAsync(analysis, ocrLines, bytes);
+        }
+        catch (Exception ex)
+        {
+            throw new AnalyzerException(
+                MessageCodeEnum.OpenAiFailed,
+                EnumHelper.GetEnumDescription(MessageCodeEnum.OpenAiFailed),
+                ex
+            );
+        }
 
         stopwatch.Stop();
 
@@ -61,12 +97,12 @@ public class AzureImageAnalyzer : IImageAnalyzer
         {
             Tags = analysis.Tags?
             .Where(t => t.Confidence > 0.88)
-            .Select(t => new ObjectInfo { Name = t.Name, Confidence = t.Confidence }) 
-            ?? Enumerable.Empty<ObjectInfo>(),
+                     .Select(t => new ObjectInfo { Name = t.Name, Confidence = t.Confidence }) 
+                     ?? Enumerable.Empty<ObjectInfo>(),
 
             Objects = analysis.Objects?
             .Select(o => new ObjectInfo { Name = o.ObjectProperty, Confidence = o.Confidence }) 
-            ?? Enumerable.Empty<ObjectInfo>(),
+                      ?? Enumerable.Empty<ObjectInfo>(),
 
             Caption = cvCaption?.Text,
             CaptionConfidence = combinedCaptionConfidence, // ← 使用加權平均後的信心值
@@ -102,23 +138,25 @@ public class AzureImageAnalyzer : IImageAnalyzer
 
     private async Task<GptResult?> AnalyzeWithOpenAIAsync(ImageAnalysis analysis, List<string> ocrLines, byte[] bytes)
     {
-        // ImageSharp 縮圖 + Base64
-        using var image = SixLabors.ImageSharp.Image.Load(bytes);
-        int maxSize = 256;
-        int width = image.Width > image.Height ? maxSize : image.Width * maxSize / image.Height;
-        int height = image.Height >= image.Width ? maxSize : image.Height * maxSize / image.Width;
-        image.Mutate(x => x.Resize(width, height));
+        try
+        {
+            // ImageSharp 縮圖 + Base64
+            using var image = SixLabors.ImageSharp.Image.Load(bytes);
+            int maxSize = 256;
+            int width = image.Width > image.Height ? maxSize : image.Width * maxSize / image.Height;
+            int height = image.Height >= image.Width ? maxSize : image.Height * maxSize / image.Width;
+            image.Mutate(x => x.Resize(width, height));
 
-        using var msThumb = new MemoryStream();
-        var encoder = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = 70 };
-        image.Save(msThumb, encoder);
-        string base64Image = Convert.ToBase64String(msThumb.ToArray());
-        string imageDataUri = $"data:image/jpeg;base64,{base64Image}";
+            using var msThumb = new MemoryStream();
+            var encoder = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder { Quality = 70 };
+            image.Save(msThumb, encoder);
+            string base64Image = Convert.ToBase64String(msThumb.ToArray());
+            string imageDataUri = $"data:image/jpeg;base64,{base64Image}";
 
-        string caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text;
-        var tags = analysis.Tags?.Where(t => t.Confidence > 0.88).Select(t => t.Name) ?? Enumerable.Empty<string>();
+            string caption = analysis.Description?.Captions?.OrderByDescending(c => c.Confidence).FirstOrDefault()?.Text;
+            var tags = analysis.Tags?.Where(t => t.Confidence > 0.88).Select(t => t.Name) ?? Enumerable.Empty<string>();
 
-        string prompt = $@"
+            string prompt = $@"
 我有一張圖片，Azure Computer Vision 的分析結果如下：
 - Caption: {caption}
 - Tags: {string.Join(", ", tags)}
@@ -131,19 +169,29 @@ public class AzureImageAnalyzer : IImageAnalyzer
 ";
 
         var chatMessages = new List<ChatMessage>()
-        {
-            new SystemChatMessage("你是一個影像辨識專家"),
-            new UserChatMessage(new List<ChatMessageContentPart>
             {
-                ChatMessageContentPart.CreateTextPart(prompt),
-                ChatMessageContentPart.CreateImagePart(new Uri(imageDataUri))
-            })
-        };
+                new SystemChatMessage("你是一個影像辨識專家"),
+                new UserChatMessage(new List<ChatMessageContentPart>
+                {
+                    ChatMessageContentPart.CreateTextPart(prompt),
+                    ChatMessageContentPart.CreateImagePart(new Uri(imageDataUri))
+                })
+            };
 
-        var completion = await _chatClient.CompleteChatAsync(chatMessages);
-        string gptResult = completion.Value.Content[0].Text.Replace("```json", "").Replace("```", "").Trim();
-        var match = Regex.Match(gptResult, "{.*}", RegexOptions.Singleline);
-        if (match.Success) return JsonSerializer.Deserialize<GptResult>(match.Value);
-        return null;
+            var completion = await _chatClient.CompleteChatAsync(chatMessages);
+            string gptResult = completion.Value.Content[0].Text.Replace("```json", "").Replace("```", "").Trim();
+            var match = Regex.Match(gptResult, "{.*}", RegexOptions.Singleline);
+            if (match.Success) return JsonSerializer.Deserialize<GptResult>(match.Value);
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            throw new AnalyzerException(
+                MessageCodeEnum.OpenAiFailed,
+                EnumHelper.GetEnumDescription(MessageCodeEnum.OpenAiFailed),
+                ex
+            );
+        }
     }
 }
