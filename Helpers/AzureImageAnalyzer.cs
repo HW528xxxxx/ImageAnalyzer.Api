@@ -6,17 +6,23 @@ using SixLabors.ImageSharp.Processing;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using ComputerVision.Dto;
+using ComputerVision.Interface;
 
 
 public class AzureImageAnalyzer : IImageAnalyzer
 {
     private readonly ComputerVisionClient _cv;
     private readonly ChatClient _chatClient;
+    private readonly IVideoIndexerAnalyzer _videoIndexer;
 
-    public AzureImageAnalyzer(ComputerVisionClient cv, ChatClient chatClient)
+    public AzureImageAnalyzer(
+        ComputerVisionClient cv,
+        ChatClient chatClient,
+        IVideoIndexerAnalyzer videoIndexer)
     {
         _cv = cv;
         _chatClient = chatClient;
+        _videoIndexer = videoIndexer;
     }
 
     public async Task<ImageAnalysisResult> AnalyzeAsync(byte[] bytes)
@@ -34,6 +40,19 @@ public class AzureImageAnalyzer : IImageAnalyzer
 
         // GPT multimodal
         var gptResult = await AnalyzeWithOpenAIAsync(analysis, ocrLines, bytes);
+
+        // 取得 Video Indexer 的人物辨識結果
+        IList<PersonInfoDto> people;
+        try
+        {
+            people = await _videoIndexer.RecognizePeopleAsync(bytes);
+        }
+        catch (Exception ex)
+        {
+            // 可視情況記錄錯誤並回傳空結果，不要讓整個分析失敗
+            people = new List<PersonInfoDto>();
+            // Log.Error(ex, "Video Indexer failed");
+        }
 
         stopwatch.Stop();
 

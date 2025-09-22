@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Azure.CognitiveServices.Vision.ComputerVision;
 using Microsoft.AspNetCore.Mvc;
 using Azure.AI.OpenAI;
+using ComputerVision.Interface;
+using ComputerVision.Helpers;
 
 var builder = WebApplication.CreateBuilder(args);
 // ----------------- CORS -----------------
@@ -36,6 +38,17 @@ var chatClient = new AzureOpenAIClient(
 
 builder.Services.AddSingleton(chatClient);
 builder.Services.AddSingleton<IImageAnalyzer, AzureImageAnalyzer>();
+
+
+// ----------------- Azure VideoIndexer -----------------
+string viAccountId = builder.Configuration["VideoIndexer:AccountId"] ?? throw new Exception("VideoIndexer:AccountId 未設定");
+string viLocation = builder.Configuration["VideoIndexer:Location"] ?? throw new Exception("VideoIndexer:Location 未設定");
+
+// VideoIndexer Analyzer 注入
+builder.Services.AddSingleton<IVideoIndexerAnalyzer>(sp =>
+{
+    return new AzureVideoIndexerAnalyzer(viAccountId, viLocation, new HttpClient());
+});
 
 // ----------------- Swagger -----------------
 builder.Services.AddEndpointsApiExplorer();
