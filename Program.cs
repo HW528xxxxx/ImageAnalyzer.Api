@@ -6,6 +6,9 @@ using Azure.AI.OpenAI;
 using ComputerVision.Interface;
 using ComputerVision.Services;
 using ComputerVision.Exceptions;
+using Microsoft.Azure.CognitiveServices.Vision.Face;
+using Microsoft.Azure.CognitiveServices.Vision.Face.Models;
+
 
 var builder = WebApplication.CreateBuilder(args);
 // ----------------- CORS -----------------
@@ -25,7 +28,7 @@ var endpoint = builder.Configuration["AzureVision:Endpoint"]?? throw new Excepti
 var key      = builder.Configuration["AzureVision:Key"] ?? throw new Exception("AzureVision:Key 未設定");
 
 builder.Services.AddSingleton(new ComputerVisionClient(
-    new ApiKeyServiceClientCredentials(key)) { Endpoint = endpoint });
+    new Microsoft.Azure.CognitiveServices.Vision.ComputerVision.ApiKeyServiceClientCredentials(key)) { Endpoint = endpoint });
 
 // ----------------- Azure OpenAI (2.x) -----------------
 string aoaiEndpoint = builder.Configuration["AzureOpenAI:Endpoint"] ?? throw new Exception("AzureOpenAI:Endpoint 未設定");
@@ -39,6 +42,23 @@ var chatClient = new AzureOpenAIClient(
 
 builder.Services.AddSingleton(chatClient);
 builder.Services.AddSingleton<IImageAnalyzer, AzureImageAnalyzer>();
+
+// ----------------- Azure Face API -----------------
+var faceEndpoint = Environment.GetEnvironmentVariable("AzureFace_Endpoint") 
+                   ?? throw new Exception("AzureFace_Endpoint 未設定");
+var faceKey      = Environment.GetEnvironmentVariable("AzureFace_Key") 
+                   ?? throw new Exception("AzureFace_Key 未設定");
+
+builder.Services.AddSingleton<IFaceClient>(sp =>
+{
+    return new FaceClient(new Microsoft.Azure.CognitiveServices.Vision.Face.ApiKeyServiceClientCredentials(faceKey))
+    {
+        Endpoint = faceEndpoint
+    };
+});
+
+// 註冊 FaceService (使用 IFaceClient)
+builder.Services.AddSingleton<IFaceService, FaceService>();
 
 // ----------------- Memory Cache -----------------
 builder.Services.AddMemoryCache(); // 記憶體快取
@@ -55,6 +75,7 @@ app.UseCors("frontend");
 
 app.MapPost("/api/analyze", async (HttpRequest req,
                                    [FromServices] IImageAnalyzer analyzer,
+                                   [FromServices] IFaceService faceService,
                                    [FromServices] IIpRateLimitService rateLimitService) =>
 {
     try
@@ -94,6 +115,8 @@ app.MapPost("/api/analyze", async (HttpRequest req,
             await file.CopyToAsync(ms);
             bytes = ms.ToArray();
         }
+
+        // var faces = await faceService.DetectFacesAsync(bytes);
 
         var result = await analyzer.AnalyzeAsync(bytes);
         return Results.Ok(result);

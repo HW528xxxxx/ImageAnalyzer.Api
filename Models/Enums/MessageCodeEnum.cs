@@ -39,12 +39,17 @@ public enum MessageCodeEnum
     [Description("Azure OpenAI 分析失敗，請稍後再試")]
     OpenAiFailed = 10005,
 
-    
     /// <summary>
     /// Azure Computer Vision 分析失敗
     /// </summary>
     [Description("Azure Computer Vision 分析失敗，請稍後再試")]
     ComputerVisionFailed = 10006,
+
+    /// <summary>
+    /// Azure FaceAPI (Cognitive Services) 分析失敗
+    /// </summary>
+    [Description("Azure FaceAPI (Cognitive Services) 分析失敗，請稍後再試")]
+    FaceAPIFailed = 10007,
 
     /// <summary>
     /// 未知錯誤
