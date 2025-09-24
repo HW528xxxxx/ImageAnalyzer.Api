@@ -97,11 +97,11 @@ public class AzureImageAnalyzer : IImageAnalyzer
         {
             Tags = analysis.Tags?
             .Where(t => t.Confidence > 0.88)
-                     .Select(t => new ObjectInfo { Name = t.Name, Confidence = t.Confidence }) 
+                     .Select(t => new ObjectInfo { Name = t.Name, Confidence = t.Confidence })
                      ?? Enumerable.Empty<ObjectInfo>(),
 
             Objects = analysis.Objects?
-            .Select(o => new ObjectInfo { Name = o.ObjectProperty, Confidence = o.Confidence }) 
+            .Select(o => new ObjectInfo { Name = o.ObjectProperty, Confidence = o.Confidence })
                       ?? Enumerable.Empty<ObjectInfo>(),
 
             Caption = cvCaption?.Text,
@@ -157,18 +157,19 @@ public class AzureImageAnalyzer : IImageAnalyzer
             var tags = analysis.Tags?.Where(t => t.Confidence > 0.88).Select(t => t.Name) ?? Enumerable.Empty<string>();
 
             string prompt = $@"
-我有一張圖片，Azure Computer Vision 的分析結果如下：
-- Caption: {caption}
-- Tags: {string.Join(", ", tags)}
-- OCR: {string.Join(" | ", ocrLines)}
+    我有一張圖片，Azure Computer Vision 的分析結果如下：
+    - Caption: {caption}
+    - Tags: {string.Join(", ", tags)}
+    - OCR: {string.Join(" | ", ocrLines)}
 
-請幫我給出更精準的描述，用中文描述：
-1. 如果能判斷品牌或型號（例如 Tesla Cybertruck），請直接指出。
-2. 如果是電動車，請加上 '電動車' 標籤。
-3. 回傳 JSON 格式：{{ ""description"": ..., ""extraTags"": [...] }}
-";
+    請幫我給出更精準的描述，用中文描述：
+    1. 如果能判斷品牌或型號（例如 Tesla Cybertruck 或 7-ELEVEN），請直接指出並補充該品牌的特色。
+    2. 請先推論出圖片最主要的類別（例如：便利商店、咖啡店、速食店、電動車等），並將它放在 extraTags 的第一個位置。
+    3. 再根據這個主要類別，補充更多細節（例如營業型態、常見特色、商品或服務）。
+    4. 回傳 JSON 格式：{{ ""description"": ..., ""extraTags"": [...] }}
+    ";
 
-        var chatMessages = new List<ChatMessage>()
+            var chatMessages = new List<ChatMessage>()
             {
                 new SystemChatMessage("你是一個影像辨識專家"),
                 new UserChatMessage(new List<ChatMessageContentPart>
