@@ -146,12 +146,20 @@ prompt 中包含 Caption、Tags、OCR 結果
     "extraTags": ["..."]
 }
 
-7. .AllowAnonymous()
+
+7. 呼叫 Azure OpenAI 的 TTS 
+透過 HttpClient 呼叫 Azure OpenAI 的 TTS endpoint(目前僅提供REST呼叫)，把傳入的文字送到 /openai/deployments/{deployment}/audio/speech，如果回傳成功就把回傳的 audio bytes 轉成 Base64 字串並回傳
+
+讀出整個回應的 byte 陣列（音訊檔），轉成 base64 字串回傳 -> 方便 JSON 傳遞給前端
+var audioBytes = await response.Content.ReadAsByteArrayAsync();
+return Convert.ToBase64String(audioBytes);
+
+
+8. .AllowAnonymous()
 確保 Minimal API 不觸發 Anti-Forgery。
 
 
-
-8. 回傳 JSON 結果：
+9. 回傳 JSON 結果：
 return Results.Ok(new
 {
     tags = analysis.Tags?.Select(t => new { t.Name, t.Confidence }),
