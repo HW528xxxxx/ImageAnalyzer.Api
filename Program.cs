@@ -30,7 +30,7 @@ builder.Services.AddSingleton(new ComputerVisionClient(
 // ----------------- Azure OpenAI (2.x) -----------------
 string aoaiEndpoint = builder.Configuration["AzureOpenAI:Endpoint"] ?? throw new Exception("AzureOpenAI:Endpoint 未設定");
 string aoaiKey = builder.Configuration["AzureOpenAI:Key"] ?? throw new Exception("AzureOpenAI:Key 未設定");
-var deployName = builder.Configuration["AzureOpenAI:Deployment"] ?? throw new Exception("AzureOpenAI:Key 未設定");
+var deployName = builder.Configuration["AzureOpenAI:Deployment"] ?? throw new Exception("AzureOpenAI:Deployment 未設定");
 
 var chatClient = new AzureOpenAIClient(
     new Uri(aoaiEndpoint),
@@ -39,6 +39,24 @@ var chatClient = new AzureOpenAIClient(
 
 builder.Services.AddSingleton(chatClient);
 builder.Services.AddSingleton<IImageAnalyzer, AzureImageAnalyzer>();
+
+// -----------------Azure OpenAI TTS Service -----------------
+var deployttsName = builder.Configuration["AzureOpenAITTS:Deployment"] ?? throw new Exception("AzureOpenAITTS:Deployment 未設定");
+var ttsApiVersion = builder.Configuration["AzureOpenAITTS:ttsApiVersion"] ?? throw new Exception("AzureOpenAITTS:ttsApiVersion 未設定");
+
+// 註冊 HttpClient
+builder.Services.AddHttpClient();
+
+// 注入 TTS 服務，把設定統一傳進去
+builder.Services.AddSingleton<ITtsService>(sp =>
+    new AzureOpenAiTtsService(
+        sp.GetRequiredService<IHttpClientFactory>(),
+        aoaiEndpoint,
+        aoaiKey,
+        deployttsName,
+        ttsApiVersion
+    )
+);
 
 // ----------------- Memory Cache -----------------
 builder.Services.AddMemoryCache(); // 記憶體快取
@@ -115,6 +133,36 @@ app.MapPost("/api/analyze", async (HttpRequest req,
     }
 });
 
+
+app.MapPost("/api/tts", async (HttpRequest req, [FromServices] ITtsService ttsService) =>
+{
+    try
+    {
+        var form = await req.ReadFormAsync();
+        var text = form["text"].ToString();
+        if (string.IsNullOrWhiteSpace(text))
+            return Results.Json(
+                new { code = (int)MessageCodeEnum.TtsTextEmpty, message = EnumHelper.GetEnumDescription(MessageCodeEnum.TtsTextEmpty) },
+                statusCode: 400
+            );
+
+        var base64Audio = await ttsService.TextToSpeechBase64Async(text);
+        if (string.IsNullOrEmpty(base64Audio))
+            return Results.Json(
+                new { code = (int)MessageCodeEnum.TtsFailed, message = EnumHelper.GetEnumDescription(MessageCodeEnum.TtsFailed) },
+                statusCode: 500
+            );
+
+        return Results.Ok(new { audioBase64 = base64Audio });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(
+            new { code = (int)MessageCodeEnum.非預期系統錯誤, message = EnumHelper.GetEnumDescription(MessageCodeEnum.非預期系統錯誤) + ": " + ex.Message },
+            statusCode: 500
+        );
+    }
+});
 
 // ----------------- Minimal API Endpoint (Azure OpenAI 2.x Test) -----------------
 app.MapGet("/test-openai", async ([FromServices] ChatClient client) =>

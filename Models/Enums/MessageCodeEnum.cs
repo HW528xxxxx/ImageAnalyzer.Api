@@ -38,13 +38,24 @@ public enum MessageCodeEnum
     /// </summary>
     [Description("Azure OpenAI 分析失敗，請稍後再試")]
     OpenAiFailed = 10005,
-
     
     /// <summary>
     /// Azure Computer Vision 分析失敗
     /// </summary>
     [Description("Azure Computer Vision 分析失敗，請稍後再試")]
     ComputerVisionFailed = 10006,
+
+    /// <summary>
+    /// TTS 文字為空
+    /// </summary>
+    [Description("TTS 文字不可為空")]
+    TtsTextEmpty = 20001,
+
+    /// <summary>
+    /// TTS 生成失敗
+    /// </summary>
+    [Description("TTS 生成失敗")]
+    TtsFailed = 20002,
 
     /// <summary>
     /// 未知錯誤
