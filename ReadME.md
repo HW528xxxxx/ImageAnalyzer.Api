@@ -1,3 +1,5 @@
+# 未來影像分析中心(後端)
+
 功能概述
 影像分析 (Image Analysis)：使用 Azure Computer Vision 提取 Caption、Tags、Objects。
 文字辨識 (OCR)：提取圖片中的文字。
@@ -39,7 +41,7 @@ var form = await context.Request.ReadFormAsync();
 var file = form.Files["file"];
 
 
-1) Image Analysis (影像分析)
+## Image Analysis (影像分析)
 var features = new List<VisualFeatureTypes?>()
     { VisualFeatureTypes.Description, VisualFeatureTypes.Tags, VisualFeatureTypes.Objects };
 
@@ -55,7 +57,7 @@ Objects（偵測到的物件）
 回傳會是 ImageAnalysis 物件，裡面含 tags、objects、description 等資料。
 
 
-2) OCR（Read API）
+## OCR（Read API）
 ReadOperationResult readResult;
 using (var ms2 = new MemoryStream(bytes))
 {
@@ -76,7 +78,7 @@ using (var ms2 = new MemoryStream(bytes))
 成功後可從 readResult.AnalyzeResult.ReadResults 取出每頁（page）及每行（line）的文字。
 
 
-6. 呼叫 Azure OpenAI 2.x (生成更精準描述)
+## 呼叫 Azure OpenAI 2.x (生成更精準描述)
     ### ImageSharp 縮圖 + Base64 Data URI
 
     使用 [SixLabors.ImageSharp](https://github.com/SixLabors/ImageSharp) 對上傳的圖片進行縮圖，並轉為 Base64 字串，方便在 HTTP 請求中傳送或給 GPT multimodal 使用。
@@ -147,7 +149,7 @@ prompt 中包含 Caption、Tags、OCR 結果
 }
 
 
-7. 呼叫 Azure OpenAI 的 TTS 
+## 呼叫 Azure OpenAI 的 TTS 
 透過 HttpClient 呼叫 Azure OpenAI 的 TTS endpoint(目前僅提供REST呼叫)，把傳入的文字送到 /openai/deployments/{deployment}/audio/speech，如果回傳成功就把回傳的 audio bytes 轉成 Base64 字串並回傳
 
 讀出整個回應的 byte 陣列（音訊檔），轉成 base64 字串回傳 -> 方便 JSON 傳遞給前端
@@ -155,11 +157,7 @@ var audioBytes = await response.Content.ReadAsByteArrayAsync();
 return Convert.ToBase64String(audioBytes);
 
 
-8. .AllowAnonymous()
-確保 Minimal API 不觸發 Anti-Forgery。
-
-
-9. 回傳 JSON 結果：
+## /api/analyze 回傳 JSON 結果：
 return Results.Ok(new
 {
     tags = analysis.Tags?.Select(t => new { t.Name, t.Confidence }),
@@ -184,11 +182,11 @@ Postman 測試結果
         },
         {
             "name": "tire",
-            "confidence": 0.9897933006286621
+            "confidence": 0.9897932410240173
         },
         {
             "name": "car",
-            "confidence": 0.9815793037414551
+            "confidence": 0.9815791845321655
         },
         {
             "name": "land vehicle",
@@ -204,19 +202,19 @@ Postman 測試結果
         },
         {
             "name": "transport",
-            "confidence": 0.9696645736694336
+            "confidence": 0.9696646928787231
         },
         {
             "name": "auto part",
-            "confidence": 0.954673171043396
+            "confidence": 0.9546732902526855
         },
         {
             "name": "bumper",
-            "confidence": 0.9361152648925781
+            "confidence": 0.9361151456832886
         },
         {
             "name": "automotive design",
-            "confidence": 0.9340722560882568
+            "confidence": 0.9340723156929016
         },
         {
             "name": "automotive tire",
@@ -224,39 +222,11 @@ Postman 測試結果
         },
         {
             "name": "automotive exterior",
-            "confidence": 0.9021803140640259
+            "confidence": 0.9021801948547363
         },
         {
             "name": "road",
-            "confidence": 0.8984114527702332
-        },
-        {
-            "name": "fender",
-            "confidence": 0.872944176197052
-        },
-        {
-            "name": "automotive wheel system",
-            "confidence": 0.8665404319763184
-        },
-        {
-            "name": "land rover",
-            "confidence": 0.8510960340499878
-        },
-        {
-            "name": "sky",
-            "confidence": 0.8464308977127075
-        },
-        {
-            "name": "desert",
-            "confidence": 0.702564537525177
-        },
-        {
-            "name": "silver",
-            "confidence": 0.6464672684669495
-        },
-        {
-            "name": "automotive",
-            "confidence": 0.4428829550743103
+            "confidence": 0.8984119892120361
         }
     ],
     "objects": [
@@ -270,29 +240,27 @@ Postman 測試結果
         }
     ],
     "caption": "a car driving on a road",
-    "captionConfidence": 0.5526080131530762,
-    "ocr": [],
+    "captionConfidence": 0.7020159338712693,
+    "ocrLines": [],
     "gptDescription": {
-        "description": "一輛特斯拉的Cybertruck電動車在沙漠中的公路上行駛。",
+        "description": "這是一輛特斯拉 Cybertruck，該車型以其未來感十足的設計和獨特的鋼製車身聞名。Cybertruck 擁有極高的耐用性和卓越的越野性能，外觀方正且棱角分明，車頂運用強化玻璃，增強安全性與視野。",
         "extraTags": [
-            "特斯拉",
-            "Cybertruck",
             "電動車",
-            "沙漠"
+            "車輛",
+            "越野",
+            "特斯拉",
+            "設計",
+            "未來感",
+            "頑固耐用",
+            "電動交通工具",
+            "科技創新"
         ]
     },
-    "requestDurationMs": 6.18
+    "requestDurationMs": 6.217
 }
 
-說明
-tags → Azure Computer Vision 自動識別物件與概念，例如「text」「poster」「graphic design」。
 
-objects → 圖片中具體物件（本例中無）。
-
-caption → 系統給的最佳文字描述。
-
-captionConfidence → 描述的可信度。
-
-ocr → OCR 識別出的所有文字，保持原本順序。
-
-
+## /api/tts 回傳 JSON 結果(轉成 base64 字串回傳前端)：
+{
+    "audioBase64": "//PExABbFDnIAVnAADlnOms66znfNUVYxhGGowbShvsmqiZo4GDLZgEEBBpJqqGSWZpZigoLuvACwiEgtoAjlx11z+33WHUHafLHQS8LOGAACAWgQCJEIprHa+5bW1A0x110zD1TqnVOmOmOsd+4AVOy+mfycia5y65jGbmGgSGkMsPXe48vzqQw1hdjEH4xp8pXbiC5C/gAAYAFoEwGXuWztr7vy+3qkjcbp6eNxu04CQgBCYxmMpjGWbRTZe7a70AiKixGuQ5YpHYWEQDorqDqnUDQloB0i11u47DkNcdyHKTlPDksm3DXeqdU7E4fvVIYhy9E3/"
+}
