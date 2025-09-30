@@ -66,111 +66,13 @@ builder.Services.AddSingleton<IIpRateLimitService, IpRateLimitService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// ----------------- MapControllers -----------------
+builder.Services.AddControllers();
+
 var app = builder.Build();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.UseCors("frontend");
-
-app.MapPost("/api/analyze", async (HttpRequest req,
-                                   [FromServices] IImageAnalyzer analyzer,
-                                   [FromServices] IIpRateLimitService rateLimitService) =>
-{
-    try
-    {
-        var ip = req.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-        if (!rateLimitService.CheckLimit(ip, 5, out var remaining))
-            return Results.Json(
-                new { code = (int)MessageCodeEnum.CheckLimit, message = EnumHelper.GetEnumDescription(MessageCodeEnum.CheckLimit) },
-                statusCode: 429
-            );
-
-        if (!req.HasFormContentType)
-            return Results.Json(
-                new { code = (int)MessageCodeEnum.ImageFormatError, message = "請使用 multipart/form-data 上傳" },
-                statusCode: 400
-            );
-
-        var form = await req.ReadFormAsync();
-        var file = form.Files["file"];
-        if (file == null || file.Length == 0)
-            return Results.Json(
-                new { code = (int)MessageCodeEnum.ImageNULL, message = EnumHelper.GetEnumDescription(MessageCodeEnum.ImageNULL) },
-                statusCode: 400
-            );
-
-        var allowedTypes = new[] { "image/jpeg", "image/png" };
-        if (!allowedTypes.Contains(file.ContentType.ToLower()))
-            return Results.Json(
-                new { code = (int)MessageCodeEnum.ImageFormatError, message = EnumHelper.GetEnumDescription(MessageCodeEnum.ImageFormatError) },
-                statusCode: 400
-            );
-
-        byte[] bytes;
-        using (var ms = new MemoryStream())
-        {
-            await file.CopyToAsync(ms);
-            bytes = ms.ToArray();
-        }
-
-        var result = await analyzer.AnalyzeAsync(bytes);
-        return Results.Ok(result);
-    }
-    catch (AnalyzerException aex)
-    {
-        return Results.Json(
-            new { code = (int)aex.Code, message = aex.Message },
-            statusCode: 400
-        );
-    }
-    catch (Exception ex)
-    {
-        // 其他未知錯誤
-        return Results.Json(
-            new { code = (int)MessageCodeEnum.非預期系統錯誤, message = EnumHelper.GetEnumDescription(MessageCodeEnum.非預期系統錯誤) + ": " + ex.Message },
-            statusCode: 500
-        );
-    }
-});
-
-
-app.MapPost("/api/tts", async (HttpRequest req, [FromServices] ITtsService ttsService) =>
-{
-    try
-    {
-        var form = await req.ReadFormAsync();
-        var text = form["text"].ToString();
-        if (string.IsNullOrWhiteSpace(text))
-            return Results.Json(
-                new { code = (int)MessageCodeEnum.TtsTextEmpty, message = EnumHelper.GetEnumDescription(MessageCodeEnum.TtsTextEmpty) },
-                statusCode: 400
-            );
-
-        var base64Audio = await ttsService.TextToSpeechBase64Async(text);
-        if (string.IsNullOrEmpty(base64Audio))
-            return Results.Json(
-                new { code = (int)MessageCodeEnum.TtsFailed, message = EnumHelper.GetEnumDescription(MessageCodeEnum.TtsFailed) },
-                statusCode: 500
-            );
-
-        return Results.Ok(new { audioBase64 = base64Audio });
-    }
-    catch (Exception ex)
-    {
-        return Results.Json(
-            new { code = (int)MessageCodeEnum.非預期系統錯誤, message = EnumHelper.GetEnumDescription(MessageCodeEnum.非預期系統錯誤) + ": " + ex.Message },
-            statusCode: 500
-        );
-    }
-});
-
-// ----------------- Minimal API Endpoint (Azure OpenAI 2.x Test) -----------------
-app.MapGet("/test-openai", async ([FromServices] ChatClient client) =>
-{
-    var chatMessages = new List<ChatMessage>() { new SystemChatMessage("你是一個測試助手") };
-    var complete = await client.CompleteChatAsync(chatMessages);
-    var resp = complete.Value.Content[0].Text;
-    return Results.Ok(new { message = resp });
-});
+app.MapControllers();
 
 app.Run();
