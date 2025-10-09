@@ -15,6 +15,7 @@ namespace ComputerVision.Dto
         public IEnumerable<string> OcrLines { get; set; } = Enumerable.Empty<string>();
         public GptResult? GptDescription { get; set; }
         public double RequestDurationMs { get; set; }
+        public string? AnnotatedImageBase64 { get; set; }
     }
 
 }

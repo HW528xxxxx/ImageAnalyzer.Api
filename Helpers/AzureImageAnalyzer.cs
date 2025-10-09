@@ -7,6 +7,10 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using ComputerVision.Dto;
 using ComputerVision.Exceptions;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Drawing.Processing;
+using SixLabors.Fonts;
 
 public class AzureImageAnalyzer : IImageAnalyzer
 {
@@ -91,7 +95,10 @@ public class AzureImageAnalyzer : IImageAnalyzer
                 .Take(5)
                 .Average(o => o.Confidence);
 
-        double combinedCaptionConfidence = 0.5 * cvCaptionConfidence + 0.25 * tagsConfidence + 0.25 * objectsConfidence;
+        double combinedCaptionConfidence = 0.25 * cvCaptionConfidence + 0.5 * tagsConfidence + 0.25 * objectsConfidence;
+
+        // === 新增可視化標註框 ===
+        string annotatedImageBase64 = DrawBoundingBoxes(bytes, analysis);
 
         return new ImageAnalysisResult
         {
@@ -108,7 +115,8 @@ public class AzureImageAnalyzer : IImageAnalyzer
             CaptionConfidence = combinedCaptionConfidence, // ← 使用加權平均後的信心值
             OcrLines = ocrLines,
             GptDescription = gptResult,
-            RequestDurationMs = stopwatch.ElapsedMilliseconds / 1000.0
+            RequestDurationMs = stopwatch.ElapsedMilliseconds / 1000.0,
+            AnnotatedImageBase64 = annotatedImageBase64
         };
     }
 
@@ -195,4 +203,87 @@ public class AzureImageAnalyzer : IImageAnalyzer
             );
         }
     }
+
+    private string DrawBoundingBoxes(byte[] imageBytes, ImageAnalysis analysis)
+    {
+        using var image = Image.Load<Rgba32>(imageBytes);
+        var font = SystemFonts.CreateFont("Arial", 26, FontStyle.Bold);
+        var pen = new SolidPen(Color.Red, 4);
+
+        var tags = analysis.Tags ?? new List<ImageTag>();var objects = analysis.Objects ?? Enumerable.Empty<DetectedObject>();
+
+        if (objects.Any())
+        {
+            // 有偵測到物件
+            foreach (var obj in objects)
+            {
+                var rect = new Rectangle(obj.Rectangle.X, obj.Rectangle.Y, obj.Rectangle.W, obj.Rectangle.H);
+                string label = obj.ObjectProperty;
+                double confidence = obj.Confidence;
+
+                var topTag = tags
+                    .Where(t =>
+                        t.Confidence > confidence &&
+                        (
+                            t.Name.Contains(label, StringComparison.OrdinalIgnoreCase) ||
+                            label.Contains(t.Name, StringComparison.OrdinalIgnoreCase)
+                        )
+                    )
+                    .OrderByDescending(t => t.Confidence)
+                    .FirstOrDefault();
+
+                if (topTag != null)
+                {
+                    label = topTag.Name;
+                    confidence = topTag.Confidence;
+                }
+                else
+                {
+                    var fallbackTag = tags.OrderByDescending(t => t.Confidence).FirstOrDefault();
+                    if (fallbackTag != null && fallbackTag.Confidence > confidence)
+                    {
+                        label = fallbackTag.Name;
+                        confidence = fallbackTag.Confidence;
+                    }
+                }
+
+                string labelText = $"{label} ({confidence:P0})";
+
+                image.Mutate(x =>
+                {
+                    x.Draw(pen, rect);
+                    x.DrawText(labelText, font, Color.Yellow, new PointF(rect.X, Math.Max(0, rect.Y - 32)));
+                });
+            }
+        }
+        else
+        {
+            // 沒有偵測到物件
+            string message;
+
+            if (analysis.Description?.Captions?.Any() == true)
+            {
+                message = analysis.Description.Captions.First().Text;
+            }
+            else if (tags.Any())
+            {
+                message = "Tags: " + string.Join(", ", tags.Select(t => t.Name));
+            }
+            else
+            {
+                message = "未偵測到任何物件";
+            }
+
+            image.Mutate(x =>
+            {
+                x.DrawText(message, font, Color.Yellow, new PointF(20, 20));
+            });
+        }
+
+        using var ms = new MemoryStream();
+        image.SaveAsJpeg(ms);
+        string base64 = Convert.ToBase64String(ms.ToArray());
+        return "data:image/jpeg;base64," + base64;
+    }
+
 }
