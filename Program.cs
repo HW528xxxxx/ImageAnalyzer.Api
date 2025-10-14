@@ -58,6 +58,13 @@ builder.Services.AddSingleton<ITtsService>(sp =>
     )
 );
 
+// ----------------- ObjectDetector -----------------
+builder.Services.AddSingleton<ObjectDetectorService>(sp =>
+{
+    string modelPath = Path.Combine(builder.Environment.ContentRootPath, "Models", "yolov8s.onnx");
+    return new ObjectDetectorService(modelPath);
+});
+
 // ----------------- Memory Cache -----------------
 builder.Services.AddMemoryCache(); // 記憶體快取
 builder.Services.AddSingleton<IIpRateLimitService, IpRateLimitService>();
