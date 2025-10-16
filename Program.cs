@@ -58,6 +58,13 @@ builder.Services.AddSingleton<ITtsService>(sp =>
     )
 );
 
+// ----------------- YOLOv8m ONNX 即時物件辨識 API -----------------
+builder.Services.AddSingleton<ObjectDetectionService>(sp =>
+{
+    var modelPath = Path.Combine(builder.Environment.ContentRootPath, "Models", "yolov8m.onnx");
+    return new ObjectDetectionService(modelPath);
+});
+
 // ----------------- Memory Cache -----------------
 builder.Services.AddMemoryCache(); // 記憶體快取
 builder.Services.AddSingleton<IIpRateLimitService, IpRateLimitService>();
