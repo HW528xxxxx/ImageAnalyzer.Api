@@ -40,6 +40,8 @@ builder.Services.AddSwaggerGen();
 var form = await context.Request.ReadFormAsync();
 var file = form.Files["file"];
 
+## LINE Messaging API 通知使用者IP
+「官方 Bot 平台 API」，自動傳送訊息（Push Message）給 LINE 開發者
 
 ## Image Analysis (影像分析)
 var features = new List<VisualFeatureTypes?>()
