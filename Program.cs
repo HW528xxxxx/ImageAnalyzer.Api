@@ -6,6 +6,7 @@ using Azure.AI.OpenAI;
 using ComputerVision.Interface;
 using ComputerVision.Services;
 using ComputerVision.Exceptions;
+using ComputerVision.Factories;
 
 var builder = WebApplication.CreateBuilder(args);
 // ----------------- CORS -----------------
@@ -48,15 +49,15 @@ var ttsApiVersion = builder.Configuration["AzureOpenAITTS:ttsApiVersion"] ?? thr
 builder.Services.AddHttpClient();
 
 // 注入 TTS 服務，把設定統一傳進去
-builder.Services.AddSingleton<ITtsService>(sp =>
-    new AzureOpenAiTtsService(
-        sp.GetRequiredService<IHttpClientFactory>(),
-        aoaiEndpoint,
-        aoaiKey,
-        deployttsName,
-        ttsApiVersion
-    )
-);
+builder.Services.AddSingleton<ITtsService>(sp => 
+    ServiceFactory.CreateTtsService(sp, aoaiEndpoint, aoaiKey, deployttsName, ttsApiVersion));
+
+// ----------------- LINE Messaging -----------------
+var lineToken = builder.Configuration["LineMessaging:AccessToken"] ?? throw new Exception("LineMessaging:AccessToken 未設定");
+var lineUserId = builder.Configuration["LineMessaging:UserId"] ?? throw new Exception("LineMessaging:UserId 未設定");
+
+builder.Services.AddSingleton(sp => 
+    ServiceFactory.CreateLineNotifyService(sp, lineToken, lineUserId));
 
 // ----------------- Memory Cache -----------------
 builder.Services.AddMemoryCache(); // 記憶體快取
