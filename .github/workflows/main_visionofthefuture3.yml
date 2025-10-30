@@ -1,12 +1,12 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
-name: Build and deploy ASP.Net Core app to Azure Web App - VisionOfTheFuture3
+name: Build and deploy ASP.Net Core app to Azure Web App - VisionOfTheFuture2
 
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 jobs:
@@ -59,7 +59,7 @@ jobs:
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'VisionOfTheFuture3'
+          app-name: 'VisionOfTheFuture2'
           slot-name: 'Production'
           package: .
           
