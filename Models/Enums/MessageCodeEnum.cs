@@ -32,13 +32,13 @@ public enum MessageCodeEnum
     [Description("今日呼叫次數已達上限")]
     CheckLimit = 10004,
 
-    
+
     /// <summary>
     /// Azure OpenAI 分析失敗
     /// </summary>
     [Description("Azure OpenAI 分析失敗，請稍後再試")]
     OpenAiFailed = 10005,
-    
+
     /// <summary>
     /// Azure Computer Vision 分析失敗
     /// </summary>
@@ -58,11 +58,17 @@ public enum MessageCodeEnum
     TtsFailed = 20002,
 
     /// <summary>
+    /// LineNotify錯誤
+    /// </summary>
+    [Description("LineNotify錯誤，請連絡系統管理員")]
+    LineNotify錯誤 = 401,
+
+    /// <summary>
     /// 未知錯誤
     /// </summary>
     [Description("系統發生非預期情況，請連絡系統管理員")]
     非預期系統錯誤 = 500,
-    
+
     /// <summary>
     /// 連線逾時
     /// </summary>

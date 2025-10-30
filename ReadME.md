@@ -40,6 +40,8 @@ builder.Services.AddSwaggerGen();
 var form = await context.Request.ReadFormAsync();
 var file = form.Files["file"];
 
+## LINE Messaging API 通知使用者IP
+「官方 Bot 平台 API」，自動傳送訊息（Push Message）給 LINE 開發者
 
 ## Image Analysis (影像分析)
 var features = new List<VisualFeatureTypes?>()
@@ -55,6 +57,13 @@ Description（自動生成的 caption / 描述）
 Tags（標籤）
 Objects（偵測到的物件）
 回傳會是 ImageAnalysis 物件，裡面含 tags、objects、description 等資料。
+
+
+## 標註框功能
+取回的Objects包含物件位置和信心值
+紅色矩形框住物件位置標註名稱與信心值
+若 Tags 中有信心值較高的標籤，會用其名稱覆蓋物件名稱
+輸出 Base64 JPEG 字串，前端可直接顯示
 
 
 ## OCR（Read API）
@@ -256,7 +265,8 @@ Postman 測試結果
             "科技創新"
         ]
     },
-    "requestDurationMs": 6.217
+    "requestDurationMs": 6.217,
+    "AnnotatedImageBase64": "data:image/jpeg;base64,/9j/4AAQSkZJRgA...""
 }
 
 
