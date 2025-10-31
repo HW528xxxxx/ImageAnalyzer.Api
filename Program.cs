@@ -13,7 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(opt =>
 {
     opt.AddPolicy("frontend", p => p
-        .WithOrigins("http://localhost:5173", "http://localhost:8080", "https://https://calm-forest-00f05a300.3.azurestaticapps.net")
+        .WithOrigins("http://localhost:5173", "http://localhost:8080", "https://calm-forest-00f05a300.3.azurestaticapps.net")
         .AllowAnyHeader()
         .AllowAnyMethod());
 });
