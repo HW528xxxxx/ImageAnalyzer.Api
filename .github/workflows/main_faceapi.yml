@@ -59,7 +59,7 @@ jobs:
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'faceAPI'
+          app-name: 'VisionOfTheFuture3'
           slot-name: 'Production'
           package: .
           
